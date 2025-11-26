@@ -10,9 +10,10 @@
     "build": "tsup src/index.ts --format esm,cjs --dts --clean",
     "test": "jest"
   },
-  "dependencies": {
-    "react": "^19.2.0",
-    "react-native": "^0.82.1"
+  "dependencies": {},
+  "peerDependencies": {
+    "react": ">=18.0.0",
+    "react-native": ">=0.72.0"
   },
   "devDependencies": {
     "@types/react": "^19.2.7",

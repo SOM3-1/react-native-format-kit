@@ -5,9 +5,11 @@ import {
   applyMaxDigits,
   digitsFromValue,
   formatRawDigits,
+  formatCurrency,
   parseCurrencyFromDigits,
   stripToDigits,
   resolveFractionDigits,
+  getDecimalSeparator,
 } from "../core/currency"
 
 export type UseCurrencyInputOptions = CurrencyParsingOptions & {
@@ -158,7 +160,33 @@ export function useCurrencyInput(options: UseCurrencyInputOptions): UseCurrencyI
   }, [rawDigits, text, value, isNegative])
 
   const applyFormattedState = useCallback(
-    (nextValue: number | null, digits: string, negative: boolean, hitMaxDigits: boolean) => {
+    (
+      nextValue: number | null,
+      digits: string,
+      negative: boolean,
+      hitMaxDigits: boolean,
+      textOverride?: string
+    ) => {
+      if (textOverride !== undefined) {
+        setValueState(nextValue)
+        setRawDigits(digits)
+        setText(textOverride)
+        setIsNegative(negative)
+        setError(
+          buildError({
+            value: nextValue,
+            isNegative: negative,
+            maxDigits,
+            hitMaxDigits,
+            minimumValue,
+            maximumValue,
+            allowNegative,
+            validate,
+          })
+        )
+        return
+      }
+
       const formatted = formatRawDigits(digits, parsingOptions, mask, negative)
       setValueState(nextValue)
       setRawDigits(formatted.rawValue)
@@ -190,16 +218,16 @@ export function useCurrencyInput(options: UseCurrencyInputOptions): UseCurrencyI
 
   const setValue = useCallback(
     (next: number | null) => {
-      const normalised = normaliseValue(next, parsingOptions, fractionDigits)
+      const normalised = normaliseValue(next, parsingOptions, maxFractionDigits)
       applyFormattedState(normalised.value, normalised.digits, normalised.isNegative, normalised.hitMaxDigits)
     },
-    [applyFormattedState, parsingOptions, fractionDigits]
+    [applyFormattedState, parsingOptions, maxFractionDigits]
   )
 
   useEffect(() => {
-    if (areValuesEqual(valueProp, valueRef.current, fractionDigits)) return
+    if (areValuesEqual(valueProp, valueRef.current, maxFractionDigits)) return
     setValue(valueProp)
-  }, [valueProp, fractionDigits, setValue])
+  }, [valueProp, maxFractionDigits, setValue])
 
   useEffect(() => {
     setValue(valueRef.current)
@@ -214,10 +242,79 @@ export function useCurrencyInput(options: UseCurrencyInputOptions): UseCurrencyI
 
       const minusCount = allowNegative ? (inputText.match(/-/g) || []).length : 0
       const nextNegative = allowNegative ? minusCount % 2 === 1 : false
-      const digitsOnly = stripToDigits(inputText)
 
-      const limited = applyMaxDigits(digitsOnly, maxFractionDigits, maxDigits)
-      if (limited.hitMaxDigits && limited.digits !== digitsOnly) {
+      if (mask === "none") {
+        const decimalSeparator = getDecimalSeparator(locale)
+        const escapedSeparator = decimalSeparator.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+        const cleaned = inputText.replace(new RegExp(`[^0-9${escapedSeparator}-]`, "g"), "")
+        const unsigned = cleaned.replace(/-/g, "")
+        const hasSeparator = cleaned.includes(decimalSeparator)
+        const endsWithSeparator = cleaned.endsWith(decimalSeparator)
+        const parts = unsigned.split(decimalSeparator)
+        const intPartRaw = parts[0] ?? ""
+        const fracPartRaw = parts.slice(1).join("")
+
+        if (maxDigits && intPartRaw.length > maxDigits) {
+          setError(
+            buildError({
+              value: valueRef.current,
+              isNegative: negativeRef.current,
+              maxDigits,
+              hitMaxDigits: true,
+              minimumValue,
+              maximumValue,
+              allowNegative,
+              validate,
+            })
+          )
+          return
+        }
+
+        const digitsOnly = `${intPartRaw}${fracPartRaw}`.replace(/\D/g, "")
+
+        if (!digitsOnly) {
+          applyFormattedState(null, "", false, false)
+          return
+        }
+
+        const normalizedInt = intPartRaw.replace(/^0+(?=\d)/, "") || "0"
+        const fractionLength = fracPartRaw.length
+        const fractionValue =
+          fractionLength > 0 ? Number(fracPartRaw) / Math.pow(10, fractionLength) : 0
+        let numeric = Number(normalizedInt) + fractionValue
+
+        if (allowNegative && nextNegative) {
+          numeric = -numeric
+        }
+
+        const parsedValue = clampIncomingValue(numeric, {
+          allowNegative,
+          minimumValue,
+          maximumValue,
+        })
+
+        const textValue = `${allowNegative && nextNegative ? "-" : ""}${normalizedInt}${
+          hasSeparator || endsWithSeparator ? decimalSeparator : ""
+        }${fracPartRaw}`
+
+        applyFormattedState(parsedValue, digitsOnly, allowNegative && nextNegative, false, textValue)
+        return
+      }
+
+      // currency mask: natural left-to-right typing with optional decimal separator
+      const decimalSeparator = getDecimalSeparator(locale)
+      const escapedSeparator = decimalSeparator.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+      const allowFraction = maxFractionDigits > 0
+      const cleaned = inputText.replace(
+        new RegExp(`[^0-9${allowFraction ? escapedSeparator : ""}-]`, "g"),
+        ""
+      )
+      const unsigned = cleaned.replace(/-/g, "")
+      const parts = allowFraction ? unsigned.split(decimalSeparator) : [unsigned]
+      const intPartRaw = parts[0] ?? ""
+      const fracPartRaw = allowFraction ? parts.slice(1).join("") : ""
+
+      if (maxDigits && intPartRaw.length > maxDigits) {
         setError(
           buildError({
             value: valueRef.current,
@@ -233,19 +330,68 @@ export function useCurrencyInput(options: UseCurrencyInputOptions): UseCurrencyI
         return
       }
 
+      const fractionLimited = allowFraction ? fracPartRaw.slice(0, maxFractionDigits) : ""
+      const digitsOnly = `${intPartRaw}${fractionLimited}`.replace(/\D/g, "")
+
       if (!digitsOnly) {
+        if (allowFraction && cleaned === decimalSeparator) {
+          const base = formatCurrency(allowNegative && nextNegative ? -0 : 0, {
+            currency,
+            locale,
+            minimumFractionDigits: 0,
+            maximumFractionDigits: maxFractionDigits,
+          })
+          const textValue = `${base}${decimalSeparator}`
+          applyFormattedState(0, "0", allowNegative && nextNegative, false, textValue)
+          return
+        }
         applyFormattedState(null, "", false, false)
         return
       }
 
-      const parsedValue = parseCurrencyFromDigits(limited.digits, {
-        ...parsingOptions,
-        isNegative: nextNegative,
-        fractionDigits: maxFractionDigits,
+      const normalizedInt = intPartRaw.replace(/^0+(?=\d)/, "") || "0"
+      let numeric = Number(normalizedInt)
+      if (fractionLimited.length > 0) {
+        numeric += Number(fractionLimited) / Math.pow(10, fractionLimited.length)
+      }
+
+      if (allowNegative && nextNegative) {
+        numeric = -numeric
+      }
+
+      const clamped = clampIncomingValue(numeric, {
+        allowNegative,
+        minimumValue,
+        maximumValue,
       })
 
-      const effectiveNegative = allowNegative && nextNegative
-      applyFormattedState(parsedValue, limited.digits, effectiveNegative, limited.hitMaxDigits)
+      const formattedText = (() => {
+        if (!allowFraction) {
+          return formatCurrency(clamped, {
+            currency,
+            locale,
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0,
+          })
+        }
+
+        const endsWithSeparator = allowFraction && cleaned.endsWith(decimalSeparator)
+        const minFrac = fractionLimited.length > 0 ? fractionLimited.length : 0
+        const base = formatCurrency(clamped, {
+          currency,
+          locale,
+          minimumFractionDigits: minFrac,
+          maximumFractionDigits: maxFractionDigits,
+        })
+
+        if (endsWithSeparator) {
+          return `${base}${decimalSeparator}`
+        }
+
+        return base
+      })()
+
+      applyFormattedState(clamped, digitsOnly, allowNegative && nextNegative, false, formattedText)
     },
     [
       allowNegative,
@@ -256,6 +402,10 @@ export function useCurrencyInput(options: UseCurrencyInputOptions): UseCurrencyI
       maximumValue,
       validate,
       maxFractionDigits,
+      mask,
+      locale,
+      currency,
+      minFractionDigits,
     ]
   )
 

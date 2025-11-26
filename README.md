@@ -1,6 +1,6 @@
 # react-native-format-kit
 
-Currency input utilities for React Native with controlled formatting, masking, validation, and display helpers built on `Intl.NumberFormat`. No external dependencies beyond React/React Native.
+Currency input utilities for React Native with controlled formatting, masking, validation, display helpers, and styling hooks built on `Intl.NumberFormat`. No external deps beyond React/React Native.
 
 > **Intl note**: On older Android versions you may need an `Intl` polyfill (e.g. `@formatjs/intl-numberformat`).
 
@@ -10,107 +10,132 @@ Currency input utilities for React Native with controlled formatting, masking, v
 npm install react-native-format-kit
 ```
 
-## Quick start
+## API Overview
+
+- Components: `CurrencyInput` (editable), `CurrencyText` (display-only)
+- Hook: `useCurrencyInput`
+- Utilities: `formatCurrency`, `parseCurrencyFromDigits`, `stripToDigits`, `getDecimalSeparator`
+
+## CurrencyInput
+
+A controlled `TextInput` that formats on every change and keeps the caret at the end.
+
+**Props**
+
+| Prop | Type | Required | Default | Notes |
+| --- | --- | --- | --- | --- |
+| `currency` | `string` | Yes | — | ISO currency code |
+| `value` | `number \| null` | Yes | — | Controlled value |
+| `onChangeValue` | `(value: number \| null) => void` | Yes | — | Fired on parsed value change |
+| `locale` | `string` | No | device/runtime | Locale for `Intl.NumberFormat` |
+| `fractionDigits` | `number` | No | 2 | Legacy single min/max fraction setting |
+| `minimumFractionDigits` | `number` | No | `fractionDigits` or 2 | Formatting only |
+| `maximumFractionDigits` | `number` | No | `fractionDigits` or 2 | Formatting and parsing scale |
+| `mask` | `"currency" \| "none"` | No | `"currency"` | `currency` shows formatted value; `none` shows raw digits with locale decimal |
+| `minimumValue` | `number` | No | — | Clamp lower bound |
+| `maximumValue` | `number` | No | — | Clamp upper bound |
+| `maxDigits` | `number` | No | — | Caps **integer** digits; extras ignored and raise error |
+| `allowNegative` | `boolean` | No | `false` | `-` toggles sign when true; otherwise ignored/clamped |
+| `validate` | `(value: number \| null) => string \| null` | No | — | Custom validation message |
+| `error` | `string \| null` | No | — | External error overrides internal/custom |
+| `onValidationError` | `(message: string \| null) => void` | No | — | Fires when effective error changes |
+| `showErrorText` | `boolean` | No | `false` | Renders inline error |
+| `onChangeText` | `(formatted: string) => void` | No | — | Formatted string change |
+| `onChangeRawText` | `(rawDigits: string) => void` | No | — | Digits-only change |
+| `keyboardType` | `TextInputProps["keyboardType"]` | No | `"numeric"` | Override if needed |
+| `testID`, `accessibilityLabel` | `string` | No | — | Passed through |
+| Other `TextInputProps` | — | No | — | Forwarded except `value`, `onChangeText`, `keyboardType` |
+
+**Styling props**
+
+| Prop | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `defaultBorderColor` | `string` | `#ccc` | Idle border |
+| `focusBorderColor` | `string` | `#2d7ff9` | Focused border |
+| `errorBorderColor` | `string` | `#d14343` | Error border |
+| `containerStyle` | `StyleProp<ViewStyle>` | — | Outer wrapper |
+| `inputContainerStyle` | `StyleProp<ViewStyle>` | — | Border container |
+| `inputContainerFocusedStyle` | `StyleProp<ViewStyle>` | — | Applied on focus |
+| `inputContainerErrorStyle` | `StyleProp<ViewStyle>` | — | Applied on error |
+| `inputStyle` | `StyleProp<TextStyle>` | — | TextInput styling |
+| `label` | `string` | — | Shown as placeholder; floats on focus/value |
+| `floatingLabel` | `boolean` | `true` | Toggle floating behavior |
+| `labelStyle` | `StyleProp<TextStyle>` | — | Label text styling |
+| `labelContainerStyle` | `StyleProp<ViewStyle>` | — | Label wrapper styling |
+| `labelBackgroundColor` | `string` | `white` | Background behind floated label |
+| `errorTextStyle` | `StyleProp<TextStyle>` | — | Inline error text; default color `#d14343`, fontSize 14 |
+| `errorContainerStyle` | `StyleProp<ViewStyle>` | — | Inline error container; default marginTop 6 |
+
+**Behavior highlights**
+- Digits-only parsing; non-digits ignored. `-` toggles sign only when `allowNegative` is true.
+- Clearing input sets `value` to `null`.
+- `mask="currency"` shows `Intl`-formatted currency. `mask="none"` shows raw digits with locale decimal separator (no symbol/grouping).
+- `minimumFractionDigits`/`maximumFractionDigits` control formatting; parsing uses `maximumFractionDigits`.
+
+### Usage
 
 ```tsx
-import { CurrencyInput } from "react-native-format-kit"
-
-function PriceField() {
-  const [value, setValue] = useState<number | null>(null)
-
-  return (
-    <CurrencyInput
-      currency="USD"
-      locale="en-US"
-      value={value}
-      onChangeValue={setValue}
-      mask="currency" // default; use "none" to show raw digits with locale decimal separator
-      minimumValue={0}
-      maximumValue={10000}
-      maxDigits={7}
-      showErrorText
-      testID="price-input"
-    />
-  )
-}
+<CurrencyInput
+  currency="USD"
+  locale="en-US"
+  value={value}
+  onChangeValue={setValue}
+  onChangeText={(t) => console.log("formatted", t)}
+  onChangeRawText={(d) => console.log("digits", d)}
+  allowNegative
+  maxDigits={6}
+  minimumFractionDigits={0}
+  maximumFractionDigits={2}
+  showErrorText
+  label="Amount"
+  defaultBorderColor="#ddd"
+  focusBorderColor="#2d7ff9"
+  errorBorderColor="#e55353"
+  inputContainerStyle={{ backgroundColor: "#fafafa" }}
+  labelStyle={{ color: "#444" }}
+/>
 ```
 
-## Components & Hook
+## CurrencyText
 
-### `<CurrencyInput />`
+Display-only formatter for currency values.
 
-Controlled `TextInput` that formats on every change and keeps the caret at the end.
-
-| Prop | Type | Required | Default / Notes |
-| --- | --- | --- | --- |
-| `currency` | `string` | Yes | ISO currency code |
-| `value` | `number \| null` | Yes | Controlled value |
-| `onChangeValue` | `(value: number \| null) => void` | Yes | Fired on parsed value change |
-| `locale` | `string` | No | Device/runtime locale |
-| `fractionDigits` | `number` | No | Legacy; sets both min/max fraction digits (default 2) |
-| `minimumFractionDigits` | `number` | No | Defaults to `fractionDigits` or 2 |
-| `maximumFractionDigits` | `number` | No | Defaults to `fractionDigits` or 2; used for scaling |
-| `mask` | `"currency" \| "none"` | No | `"currency"` |
-| `minimumValue` | `number` | No | Lower bound; clamps value |
-| `maximumValue` | `number` | No | Upper bound; clamps value |
-| `maxDigits` | `number` | No | Caps integer digits only; extra digits ignored with error |
-| `allowNegative` | `boolean` | No | `false`; `-` toggles sign when true |
-| `validate` | `(value: number \| null) => string \| null` | No | Custom validation message |
-| `error` | `string \| null` | No | External error overrides internal |
-| `onValidationError` | `(message: string \| null) => void` | No | Fires when error changes |
-| `showErrorText` | `boolean` | No | Renders inline error text |
-| `onChangeText` | `(formatted: string) => void` | No | Formatted string change |
-| `onChangeRawText` | `(rawDigits: string) => void` | No | Digits-only change |
-| `containerStyle` | `StyleProp<ViewStyle>` | No | Wrap container styling |
-| `inputStyle` | `StyleProp<TextStyle>` | No | TextInput styling |
-| `errorTextStyle` | `StyleProp<TextStyle>` | No | Inline error text styling |
-| `errorContainerStyle` | `StyleProp<ViewStyle>` | No | Inline error container styling |
-| `keyboardType` | `TextInputProps["keyboardType"]` | No | `"numeric"` default |
-| `testID` / `accessibilityLabel` | `string` | No | Passed through |
-| Other `TextInputProps` | — | No | Forwarded except `value`, `onChangeText`, `keyboardType` |
-
-Behavior highlights:
-- Digits-only parsing; non-digits ignored. `-` toggles sign only when `allowNegative` is true.
-- Clearing input → `value = null`, empty string displayed.
-- Mask `"currency"`: always `Intl`-formatted currency string. Mask `"none"`: shows raw digits with locale decimal separator, no symbol/grouping.
-- `maxDigits` counts integer digits (before the decimal). Extra integer digits are ignored and raise the "Maximum digits is X" error.
-- `minimumFractionDigits`/`maximumFractionDigits` are applied to formatting; parsing uses `maximumFractionDigits` for scaling.
-
-### `<CurrencyText />`
-
-Display-only formatter.
-
-- **Required**: `currency`, `value`
-- **Optional**: `placeholder` (string), `locale`, `fractionDigits`, `minimumFractionDigits`, `maximumFractionDigits`, plus `TextProps`.
-- Renders empty string or `placeholder` when `value` is `null`/`NaN`.
-
-### `useCurrencyInput(options)`
-
-Hook that encapsulates parsing/formatting/validation/masking.
-
-**Options (required)**:
-- `currency: string`
-
-**Options (optional)**:
-- `value?: number | null` (initial value; controlled updates via `setValue`)
+- `value: number | null` (required)
+- `currency: string` (required)
 - `locale?: string`
-- `fractionDigits?: number`
-- `minimumFractionDigits?: number`
-- `maximumFractionDigits?: number`
-- `minimumValue?: number`
-- `maximumValue?: number`
-- `allowNegative?: boolean`
-- `maxDigits?: number`
-- `mask?: "currency" | "none"` (default: `"currency"`)
-- `validate?: (value: number | null) => string | null`
+- `fractionDigits?`, `minimumFractionDigits?`, `maximumFractionDigits?`
+- `placeholder?: string`
+- Plus all `TextProps`
 
-**Returns**:
+```tsx
+<CurrencyText value={value} currency="EUR" locale="de-DE" placeholder="-" />
+```
+
+## Hook: useCurrencyInput
+
+Logic-only hook for parsing/formatting/validation/masking.
+
+**Options**
+- Required: `currency: string`
+- Optional: `value?: number | null`, `locale?`, `fractionDigits?`, `minimumFractionDigits?`, `maximumFractionDigits?`, `minimumValue?`, `maximumValue?`, `allowNegative?`, `maxDigits?`, `mask?`, `validate?`
+
+**Returns**
 - `value: number | null`
-- `text: string` (formatted per mask)
-- `rawDigits: string` (digits-only, sign tracked separately)
+- `text: string`
+- `rawDigits: string`
 - `error: string | null`
-- `handleChangeText(text: string)` (wire to `TextInput.onChangeText`)
-- `setValue(value: number | null)` (update from outside)
+- `handleChangeText(text: string)`
+- `setValue(value: number | null)`
+
+```tsx
+const { text, value, rawDigits, error, handleChangeText, setValue } = useCurrencyInput({
+  currency: "USD",
+  locale: "en-US",
+  allowNegative: true,
+  maximumFractionDigits: 2,
+  maxDigits: 6,
+})
+```
 
 ## Utilities
 
@@ -122,12 +147,7 @@ import {
   getDecimalSeparator,
 } from "react-native-format-kit"
 
-formatCurrency(12.34, {
-  currency: "USD",
-  locale: "en-US",
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-})
+formatCurrency(12.34, { currency: "USD", locale: "en-US", minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 parseCurrencyFromDigits("1234", {
   currency: "USD",
@@ -143,39 +163,10 @@ stripToDigits("€1,234.56") // "123456"
 getDecimalSeparator("de-DE") // ","
 ```
 
-Utility notes:
-- `parseCurrencyFromDigits` strips non-digits, scales by `maximumFractionDigits` (or `fractionDigits` fallback), applies optional negative sign, and clamps to `minimumValue`/`maximumValue`/`maxDigits`.
-- `formatCurrency` uses `minimumFractionDigits`/`maximumFractionDigits` when provided; falls back to `fractionDigits` or 2.
+## Validation rules
 
-## Validation logic
-
-- `maxDigits`: caps integer digits; extra integer digits are ignored and trigger the "Maximum digits is X" error.
-- `allowNegative=false`: any negative input is clamped to `min` (default 0). Typing `-` is ignored.
-- `minimumValue` / `maximumValue`: values are clamped; internal error messages reflect bounds.
-- `validate(value)`: return a string to surface a custom error; returning `null` means no custom error.
-- `error` prop on `CurrencyInput` always overrides internal/custom validation output.
+- `maxDigits` caps integer digits; extra integer digits are ignored and trigger "Maximum digits is X".
+- `allowNegative=false` clamps negatives to min (default 0); `-` is ignored.
+- `minimumValue` / `maximumValue` clamp the value; internal errors reflect bounds.
+- `validate(value)` can return a custom error string; `error` prop overrides internal/custom.
 - `onValidationError` fires whenever the effective error message changes.
-
-## Examples
-
-### Raw mask with custom validation
-
-```tsx
-<CurrencyInput
-  currency="EUR"
-  locale="de-DE"
-  value={amount}
-  onChangeValue={setAmount}
-  mask="none"
-  maximumFractionDigits={2}
-  validate={(v) => (v != null && v % 1 !== 0 ? "No cents allowed" : null)}
-  showErrorText
-/>
-```
-
-### Display-only with locale detection
-
-```tsx
-const locale = Intl.NumberFormat().resolvedOptions().locale
-<CurrencyText value={1999} currency="GBP" locale={locale} placeholder="-" />
-```
